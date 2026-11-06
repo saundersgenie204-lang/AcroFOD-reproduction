@@ -276,59 +276,35 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
         mloss = torch.zeros(4, device=device)  # mean losses
                       
-        pbar = list(enumerate(dataloader)) 
-        pbar_target = list(enumerate(dataloader_target))        
-        
-        target_feature = torch.tensor([]).to(device)
-        print("caculating target dataset mean discranpancy")
-        for i, (imgs, targets, paths, space) in pbar_target:
-            imgs_feature = get_feature(imgs.to(device, non_blocking=True).float() / 255.0, model) # imgs_feature [B, 1280]
-            target_feature = torch.cat((target_feature, imgs_feature))
-        target_feature_mean = target_feature # target_feature_mean
+        print("[DIAG] source batches will be streamed", flush=True)
+        print("[DIAG] starting target feature extraction", flush=True)
+
+        # First pass: keep target features only, not all target image batches.
+        target_feature_list = []
+        with torch.no_grad():
+            for i_tar_feature, (imgs_feature_batch, _, _, _) in enumerate(dataloader_target):
+                if (i_tar_feature + 1) % 100 == 0:
+                    print(f"[DIAG] target feature batch {i_tar_feature+1}/{len(dataloader_target)}", flush=True)
+                feature = get_feature(
+                    imgs_feature_batch.to(device, non_blocking=True).float() / 255.0, model
+                )
+                target_feature_list.append(feature)
+        target_feature_mean = torch.cat(target_feature_list, dim=0)
+        del target_feature_list
         torch.cuda.empty_cache()
-        print(target_feature_mean.shape)
+        print("[DIAG] target features ready:", tuple(target_feature_mean.shape), flush=True)
         
-        print("merging dataloader to pbar")
-        for i, (imgs, targets, paths, _) in pbar: # pbar [(0, (2, 3)), (1, (2, 3))]
-            
-            pbar[i] = list(pbar[i])          # pbar [[0, (2, 3)], [1, (2, 3)]]
-            pbar[i][1] = list(pbar[i][1])    # pbar [[0, [2, 3]], [1, [2, 3]]]   
-            
-            i_tar, (imgs_tar, targets_tar, paths_tar, _) = random.sample(list(pbar_target) ,1)[0]  
-                        
-            imgs_tar_ = imgs_tar.clone()
-            targets_tar_ = targets_tar.clone() 
-            
-            imgs_feature = get_feature(imgs.to(device, non_blocking=True).float() / 255.0, model)
-            imgs_topk_index = MMD_distance(target_feature_mean, imgs_feature, bs_topk)
-            
-            if bs_add <= len(paths):
-                imgs_add_index = torch.arange(0, bs_add)
-            else:
-                imgs_add_index = torch.arange(0, len(paths))
-            
-            imgs, targets, paths = choice_topk(imgs, targets, paths, imgs_topk_index.cpu())
-            imgs_add, targets_add, paths_add = choice_topk(imgs, targets, paths, imgs_add_index)
-                        
-            #if opt.cross_domain_cp:
-            #    imgs, imgs_tar_, targets, targets_tar_ = copy_paste_api(imgs, imgs_tar_, targets, targets_tar_) 
-            
-            targets_tar_[:, 0] = targets_tar_[:, 0] + imgs.shape[0]
-            targets_add[:, 0]  = targets_add[:, 0]  + imgs.shape[0] + imgs_tar_.shape[0]
-                        
-            imgs = torch.cat((imgs, imgs_tar_, imgs_add), 0) # refine
-            targets = torch.cat((targets, targets_tar_, targets_add), 0) #refine
-            paths = paths + paths_tar + paths_add # refine
-            
-            #print("imgs shape is", imgs.shape)
-            #print("targets max is", max(targets[:,0]))
-            #print("paths len is", len(paths))
-            
-            pbar[i][1][0] = imgs
-            pbar[i][1][1] = targets
-            pbar[i][1][2] = paths
-        print("merging end")
-        
+        # Reuse the InfiniteDataLoader iterator for efficient target sampling.
+        target_batch_iterator = iter(dataloader_target)
+
+        def get_random_target_batch():
+            nonlocal target_batch_iterator
+            try:
+                return next(target_batch_iterator)
+            except StopIteration:
+                target_batch_iterator = iter(dataloader_target)
+                return next(target_batch_iterator)
+
         model.train()
         
         if rank != -1:
@@ -337,10 +313,39 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             
         logger.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'total', 'targets', 'img_size'))
         if rank in [-1, 0]:
-            pbar = tqdm(pbar, total=nb)  # progress bar
+            pbar = tqdm(enumerate(dataloader), total=nb)  # stream source batches
         optimizer.zero_grad()
         
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+            # Fetch one target batch on demand instead of caching every target image.
+            imgs_tar, targets_tar, paths_tar, _ = get_random_target_batch()
+            imgs_tar_ = imgs_tar.clone()
+            targets_tar_ = targets_tar.clone()
+
+            imgs_feature = get_feature(
+                imgs.to(device, non_blocking=True).float() / 255.0, model
+            )
+            imgs_topk_index = MMD_distance(target_feature_mean, imgs_feature, bs_topk)
+
+            if bs_add <= len(paths):
+                imgs_add_index = torch.arange(0, bs_add)
+            else:
+                imgs_add_index = torch.arange(0, len(paths))
+
+            imgs, targets, paths = choice_topk(
+                imgs, targets, paths, imgs_topk_index.cpu()
+            )
+            imgs_add, targets_add, paths_add = choice_topk(
+                imgs, targets, paths, imgs_add_index
+            )
+
+            targets_tar_[:, 0] += imgs.shape[0]
+            targets_add[:, 0] += imgs.shape[0] + imgs_tar_.shape[0]
+
+            imgs = torch.cat((imgs, imgs_tar_, imgs_add), 0)
+            targets = torch.cat((targets, targets_tar_, targets_add), 0)
+            paths = paths + paths_tar + paths_add
+
             ni = i + nb * epoch  # number integrated batches (since train start)            
             imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
                         

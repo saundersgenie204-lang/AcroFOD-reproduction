@@ -228,7 +228,7 @@ def test(data,
     
     # Print results 
     #file_output = open('/userhome/mini_result.txt','a')
-    #pf = '%20s' + '%12.3g' * 6  # print format
+    pf = '%20s' + '%12.3g' * 6  # print format
     #pf_str = pf % ('all', seen, nt.sum(), mp, mr, map50, map)
     #file_output.write(mark_result)
     #file_output.write('\n')

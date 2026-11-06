@@ -110,7 +110,13 @@ def test(data,
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            inf_out, train_out = model(img, augment=augment)  # inference and training outputs
+            model_out = model(img, augment=augment)
+            if isinstance(model_out, tuple) and len(model_out) == 2:
+                inf_out, train_out = model_out
+            else:
+                inf_out, train_out = model_out, None
+            if isinstance(inf_out, tuple):
+                inf_out = inf_out[0]
             t0 += time_synchronized() - t
 
             # Compute loss
@@ -230,7 +236,7 @@ def test(data,
 
     # Print results on other positions
     # file_output = open('/userhome/mini_result.txt','a')
-    # pf = '%20s' + '%12.3g' * 6  # print format
+    pf = '%20s' + '%12.3g' * 6  # print format
     # pf_str = pf % ('all', seen, nt.sum(), mp, mr, map50, map)
     #file_output.write(mark_result)
     #file_output.write('\n')

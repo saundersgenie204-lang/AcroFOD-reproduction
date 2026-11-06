@@ -1,0 +1,4 @@
+train: /workspace/AcroFOD/datasets/cityscapes_8cls/cityscapes_8cls/images/train
+val: /workspace/AcroFOD/datasets/cityscapes_8cls_foggy/cityscapes_8cls_foggy/images/val
+nc: 8
+names: [person, rider, car, truck, bus, train, motorcycle, bicycle]

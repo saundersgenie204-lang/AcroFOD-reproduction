@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local experiment outputs and recovery backups
+runs/
+*.bak
+*.bak_*
+*.before_*
+*.diag_backup_*
+*.pre_pytorch2_fix
+230:

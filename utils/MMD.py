@@ -3,12 +3,16 @@ from models.experimental import attempt_load
 from utils.torch_utils import select_device, intersect_dicts
 from models.yolo_feature import Model_feature
 
-def get_feature(img, model): 
-    model.eval()
-    img_feature = model(img)[1] # torch.tensor [B 1280 H/32 W/32]
-    img_feature = img_feature.mean(3).mean(2)
-    return img_feature  # torch.tensor [B, 1280] feature
-
+def get_feature(img, model):
+    was_training = model.training
+    try:
+        model.eval()
+        with torch.no_grad():
+            img_feature = model(img)[1]
+            img_feature = img_feature.mean(3).mean(2)
+        return img_feature
+    finally:
+        model.train(was_training)
 def MMD_distance(f_S, f_T, k): # S: [B1 1280] T: [B2 1280] 
     f_T = f_T - f_S.mean(0)
     f_T = f_T.mul(f_T) 
@@ -38,7 +42,7 @@ def cosine_distance(f_S, f_T, k): # f_S: [B1 1280]  T: [B2 1280]
 
 def choice_topk(imgs, targets, paths, topk_index):
     paths_refine = []
-    labels_refine = torch.tensor([])
+    labels_refine = targets.new_zeros((0, targets.shape[1]))
 
     for i in list(topk_index):
         paths_refine.append(paths[i])
