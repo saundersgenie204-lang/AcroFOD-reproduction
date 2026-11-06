@@ -322,11 +322,11 @@ Trained model checkpoints are distributed separately through GitHub Releases to 
 
  9. Limitations and Reproducibility Notes
 
-1. This reproduction is based on the publicly available AcroFOD implementation.
-2. Dataset paths need to be adapted to the local environment.
-3. The reported metrics are taken from the final epoch of the training logs.
-4. The AcroFOD and source-only Baseline experiments use different training data and epoch counts.
-5. A strictly controlled comparison and additional independent evaluation are needed for stronger conclusions.
+  This reproduction is based on the publicly available AcroFOD implementation.
+  Dataset paths need to be adapted to the local environment.
+  The reported metrics are taken from the final epoch of the training logs.
+  The AcroFOD and source-only Baseline experiments use different training data and epoch counts.
+  A strictly controlled comparison and additional independent evaluation are needed for stronger conclusions.
 
 ---
 
